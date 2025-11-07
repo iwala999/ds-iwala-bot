@@ -1,0 +1,113 @@
+import discord
+from discord.ext import commands
+import yt_dlp
+import os
+import asyncio
+
+# --- Configuration ---
+BOT_PREFIX = "!"
+MUSIC_CHANNEL_ID = 123456789012345678  # Replace with your music channel ID
+YTDLP_FORMAT = yt_dlp.params.Format(
+    তালিকা = "best",
+    তালিকা_format = "best",
+    তালিকা_extra = {
+        "allow-fragment": True,
+        "format": "best",
+        "live-ly": False, #Avoids issues with live streams
+        "prefer-ffmpeg": True,
+        "ignoreerrors": True,
+        "nocheckcertificate": True,
+    },
+)
+YTDLP_OPTIONS = {
+    "format": "bestaudio/best",
+    "extract_audio": True,
+    "audioquality": "best",
+    "outtmpl": "%(title)s.%(ext)s",
+    "keepvideo": False,
+    "noplaylist": False,
+    "noverify": True,
+    "quiet": True,
+    "ignoreerrors": True,
+    "default_options": {
+        "extra": [
+            "-vn",
+            "--ignore-mtime"
+        ]
+    }
+}
+
+# --- Bot Setup ---
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix=BOT_PREFIX, intents=intents)
+
+# --- Bot Events ---
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user.name} ({bot.user.id})")
+    activity = discord.Game(name="Listening to Music") # or "With my users"
+    await bot.change_presence(status=discord.Status.online, activity=activity)
+
+
+# --- Bot Commands ---
+
+@bot.command(name="ping")
+async def ping(ctx):
+    await ctx.send(f"Pong! Latency: {round(bot.latency * 1000)}ms")
+
+
+@bot.command(name="play")
+async def play(ctx, url):
+    try:
+        ydl_opts = YTDLP_OPTIONS
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            stream = info.get("stream", None)
+            if stream is None:
+                await ctx.send("Could not find a stream for this URL.")
+                return
+
+            # Get the audio stream
+            source = stream.get("source", None)
+            if source is None:
+                await ctx.send("Could not find audio source.")
+                return
+
+            # Create a voice client
+            voice_client = await ctx.voice_client.connect(channel=MUSIC_CHANNEL_ID)
+            # Play the audio source
+            await voice_client.play(discord.PCMVolumeAction(volume=0.5), source)  # Adjust volume
+            await ctx.send(f"Now playing: {info.get('title', 'Unknown Title')}")
+
+            # Keep the bot running until the user disconnects
+            while voice_client.is_playing():
+                await asyncio.sleep(1)
+
+            await voice_client.disconnect()
+            await ctx.send("Playback finished.")
+
+    except Exception as e:
+        await ctx.send(f"An error occurred: {e}")
+
+
+@bot.command(name="kick")
+@commands.has_permissions(kick_members=True)
+async def kick(ctx, member: discord.Member, *, reason=None):
+    try:
+        await member.kick(reason=reason)
+        await ctx.send(f"{member.name} has been kicked for {reason or 'no reason'}.")
+    except discord.Forbidden:
+        await ctx.send("I don't have the permission to kick this member.")
+
+
+@bot.command(name="help")
+async def help_command(ctx):
+    help_text = """
+    **iwala99Bot Commands:**
+
+    `!ping` - Checks bot latency.
+    `!play <url>` - Plays music from a URL.
+    `!kick <member> <reason>` - Kicks a member (requires permission).
+    `!help` - Displays this help message.
+    """
+    await ctx.send(help_text)
